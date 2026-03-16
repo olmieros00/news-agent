@@ -1,0 +1,12 @@
+# Step 1: config
+python-dotenv>=1.0.0
+# Step 4–5: connectors
+requests>=2.28.0
+feedparser>=6.0.0
+# Clustering (TF-IDF + cosine similarity)
+scikit-learn>=1.0.0
+# Optional: OpenAI for neutral headline generation (set OPENAI_API_KEY in .env)
+openai>=1.0.0
+# Translate non-English to English before clustering (langdetect + deep-translator)
+langdetect>=1.0.9
+deep-translator>=1.11.0
