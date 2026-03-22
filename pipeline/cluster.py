@@ -127,12 +127,44 @@ def cluster(normalized_items: List[NormalizedItem]) -> List[Cluster]:
         root = find(i)
         components.setdefault(root, []).append(i)
 
-    clusters = []
+    # Post-clustering validation: break apart mega-clusters caused by union-find chaining.
+    # For each cluster with 6+ members, compute "core keywords" (words in ≥30% of titles).
+    # Any member whose title shares fewer than 2 core keywords is ejected into its own cluster.
+    # This prevents "Cuba power grid" from being chained into "Trump NATO Iran" via intermediaries.
+    validated: list[list[int]] = []
     for indices in components.values():
+        if len(indices) < 6:
+            validated.append(indices)
+            continue
+        # Core keywords: words that appear in at least 30% of member titles
+        from collections import Counter
+        word_doc_count: Counter = Counter()
+        for i in indices:
+            for w in title_sets[i]:
+                word_doc_count[w] += 1
+        threshold_count = max(2, len(indices) * 0.3)
+        core_words = {w for w, c in word_doc_count.items() if c >= threshold_count}
+        if not core_words:
+            validated.append(indices)
+            continue
+        kept = []
+        ejected = []
+        for i in indices:
+            overlap = len(title_sets[i] & core_words)
+            if overlap >= 2:
+                kept.append(i)
+            else:
+                ejected.append(i)
+        if kept:
+            validated.append(kept)
+        # Each ejected member becomes its own singleton (may re-cluster with others who were also ejected)
+        for i in ejected:
+            validated.append([i])
+
+    clusters = []
+    for indices in validated:
         # Per-source deduplication: keep only the most recently published item per source_id.
-        # This prevents inflated coverage counts when one publisher posts many articles on the same story.
-        # Coverage should equal distinct publishers, not total article count.
-        seen_sources: dict[str, tuple[int, float]] = {}  # source_id -> (index, timestamp)
+        seen_sources: dict[str, tuple[int, float]] = {}
         for i in indices:
             src = normalized_items[i].source_id
             ts = _aware(normalized_items[i].published_at).timestamp()
@@ -140,7 +172,6 @@ def cluster(normalized_items: List[NormalizedItem]) -> List[Cluster]:
                 seen_sources[src] = (i, ts)
         deduped_indices = [idx for idx, _ in seen_sources.values()]
         member_ids = [normalized_items[i].id for i in deduped_indices]
-        # Deterministic cluster_id from sorted member ids
         key = "|".join(sorted(member_ids))
         cluster_id = hashlib.sha256(key.encode()).hexdigest()[:24]
         clusters.append(Cluster(cluster_id=cluster_id, member_ids=member_ids))
