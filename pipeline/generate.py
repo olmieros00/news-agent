@@ -149,7 +149,7 @@ def _generate_body_llm(
         return None
     try:
         combined = "Snippets from different sources:\n" + "\n\n".join(
-            f"[{i+1}] {s[:400]}" for i, s in enumerate(snippets[:8]) if s
+            f"[{i+1}] {s[:600]}" for i, s in enumerate(snippets[:10]) if s
         )
         response = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -157,7 +157,7 @@ def _generate_body_llm(
                 {"role": "system", "content": prompt_instruction},
                 {"role": "user", "content": combined + "\n\nWrite a concise, objective body (5–10 short lines). Only corroborated facts. No filler, no moralizing."},
             ],
-            max_tokens=350,
+            max_tokens=600,
         )
         text = (response.choices[0].message.content or "").strip()
         if text:
@@ -266,7 +266,7 @@ def generate_stories(
         if use_llm and body_prompt:
             body = _generate_body_llm(all_snippets, body_prompt, settings.openai_api_key)
         if not body:
-            body = " ".join(all_snippets)[:600].strip() or "No summary available."
+            body = " ".join(all_snippets)[:1200].strip() or "No summary available."
 
         # Final language guard on body — same as headline guard
         body = _ensure_english_body(body)
