@@ -32,8 +32,8 @@ class Settings:
     guardian_api_key: str
     newsapi_key: str
     db_path: str
-    telegram_bot_token: str
-    openai_api_key: str  # Optional: for neutral headline/body/bias generation
+    openai_api_key: str  # Optional: OpenAI for headline/body/bias (fallback if no Anthropic key)
+    anthropic_api_key: str  # Optional: Anthropic Claude for headline/body/bias (preferred)
     # Pipeline options (optional, with defaults)
     top_n_stories: int
     pipeline_hours_lookback: int
@@ -49,8 +49,8 @@ class Settings:
             guardian_api_key=os.getenv("GUARDIAN_API_KEY", "").strip(),
             newsapi_key=os.getenv("NEWSAPI_KEY", "").strip(),
             db_path=os.getenv("DB_PATH", "").strip() or str(Path.cwd() / "data" / "news_agent.db"),
-            telegram_bot_token=os.getenv("TELEGRAM_BOT_TOKEN", "").strip(),
             openai_api_key=os.getenv("OPENAI_API_KEY", "").strip(),
+            anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", "").strip(),
             top_n_stories=int(os.getenv("TOP_N_STORIES", "10")),
             pipeline_hours_lookback=int(os.getenv("PIPELINE_HOURS_LOOKBACK", "8")),
             pipeline_max_items=int(os.getenv("PIPELINE_MAX_ITEMS", "3000")),

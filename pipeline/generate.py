@@ -1,4 +1,4 @@
-# Per cluster: headline, date, body, bias. No Telegram formatting.
+# Per cluster: headline, date, body, bias.
 # Headline and body = LLM if OPENAI_API_KEY set; fallback to heuristics otherwise.
 from __future__ import annotations
 
@@ -94,13 +94,24 @@ def _ensure_english_body(body: str) -> str:
     return _ensure_english(body, "Body", max_len=1500)
 
 
-def _llm_client(api_key: str):
-    """Return an OpenAI client or None if openai is not installed."""
+def _claude_call(system: str, user: str, max_tokens: int, api_key: str) -> Optional[str]:
+    """Call Anthropic Claude. Returns response text or None on failure."""
     try:
-        import openai
-        return openai.OpenAI(api_key=api_key)
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model="claude-haiku-4-20250414",
+            max_tokens=max_tokens,
+            system=system,
+            messages=[{"role": "user", "content": user}],
+        )
+        text = (response.content[0].text or "").strip()
+        return text if text else None
     except ImportError:
-        log.warning("openai package not installed; LLM generation disabled. pip install openai")
+        log.warning("anthropic package not installed; pip install anthropic")
+        return None
+    except Exception as e:
+        log.warning("Claude API call failed: %s", e)
         return None
 
 
@@ -110,30 +121,15 @@ def _generate_headline_llm(
     prompt_instruction: str,
     api_key: str,
 ) -> Optional[str]:
-    """Call OpenAI to produce one neutral headline. Returns None on failure or missing key."""
+    """Call Claude to produce one neutral headline. Returns None on failure."""
     if not api_key or not titles:
         return None
-    client = _llm_client(api_key)
-    if client is None:
-        return None
-    try:
-        combined = "Titles from different sources:\n" + "\n".join(f"- {t}" for t in titles[:10])
-        if snippets:
-            combined += "\n\nShort snippets:\n" + "\n".join(s[:200] for s in snippets[:5] if s)
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": prompt_instruction},
-                {"role": "user", "content": combined + "\n\nSynthesize one new headline from the above. One line, no quotes. Reasoned, fair, unbiased, straight to the point."},
-            ],
-            max_tokens=80,
-        )
-        text = (response.choices[0].message.content or "").strip()
-        if text:
-            return text[:200]
-    except Exception as e:
-        log.warning("LLM headline generation failed: %s", e)
-    return None
+    combined = "Titles from different sources:\n" + "\n".join(f"- {t}" for t in titles[:10])
+    if snippets:
+        combined += "\n\nShort snippets:\n" + "\n".join(s[:200] for s in snippets[:5] if s)
+    combined += "\n\nSynthesize one new headline from the above. One line, no quotes. Reasoned, fair, unbiased, straight to the point."
+    text = _claude_call(prompt_instruction, combined, max_tokens=80, api_key=api_key)
+    return text[:200] if text else None
 
 
 def _generate_body_llm(
@@ -141,30 +137,14 @@ def _generate_body_llm(
     prompt_instruction: str,
     api_key: str,
 ) -> Optional[str]:
-    """Call OpenAI to produce a concise, objective body from merged snippets. Returns None on failure."""
+    """Call Claude to produce a structured, objective body from merged snippets."""
     if not api_key or not snippets:
         return None
-    client = _llm_client(api_key)
-    if client is None:
-        return None
-    try:
-        combined = "Snippets from different sources:\n" + "\n\n".join(
-            f"[{i+1}] {s[:600]}" for i, s in enumerate(snippets[:10]) if s
-        )
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": prompt_instruction},
-                {"role": "user", "content": combined + "\n\nWrite a concise, objective body (5–10 short lines). Only corroborated facts. No filler, no moralizing."},
-            ],
-            max_tokens=600,
-        )
-        text = (response.choices[0].message.content or "").strip()
-        if text:
-            return text
-    except Exception as e:
-        log.warning("LLM body generation failed: %s", e)
-    return None
+    combined = "Snippets from different sources:\n" + "\n\n".join(
+        f"[{i+1}] {s[:600]}" for i, s in enumerate(snippets[:10]) if s
+    )
+    combined += "\n\nExtract and structure the essential facts from these snippets. Follow the WHAT/WHO/WHERE/WHEN/WHY/WHAT NEXT structure. Skip sections with no information. Do not truncate mid-sentence."
+    return _claude_call(prompt_instruction, combined, max_tokens=600, api_key=api_key)
 
 
 def _generate_bias_llm(
@@ -172,35 +152,19 @@ def _generate_bias_llm(
     prompt_instruction: str,
     api_key: str,
 ) -> Optional[str]:
-    """Call OpenAI to compare framing across regional source groups. Returns None on failure."""
+    """Call Claude to compare framing across regional source groups."""
     if not api_key or not region_snippets:
         return None
-    client = _llm_client(api_key)
-    if client is None:
+    parts = []
+    for region, snips in region_snippets.items():
+        combined_snip = " ".join(s[:200] for s in snips[:3] if s)
+        if combined_snip:
+            parts.append(f"[{region}]: {combined_snip}")
+    if not parts:
         return None
-    try:
-        parts = []
-        for region, snips in region_snippets.items():
-            combined_snip = " ".join(s[:200] for s in snips[:3] if s)
-            if combined_snip:
-                parts.append(f"[{region}]: {combined_snip}")
-        if not parts:
-            return None
-        combined = "\n\n".join(parts)
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": prompt_instruction},
-                {"role": "user", "content": combined + "\n\nBriefly compare how each regional group frames this event. 2–4 lines. No judgment."},
-            ],
-            max_tokens=200,
-        )
-        text = (response.choices[0].message.content or "").strip()
-        if text:
-            return text
-    except Exception as e:
-        log.warning("LLM bias generation failed: %s", e)
-    return None
+    combined = "\n\n".join(parts)
+    combined += "\n\nBriefly compare how each regional group frames this event. 2–4 lines. No judgment."
+    return _claude_call(prompt_instruction, combined, max_tokens=200, api_key=api_key)
 
 
 def generate_stories(
@@ -219,11 +183,13 @@ def generate_stories(
     headline_prompt = (prompts.get("headline") or "").strip()
     body_prompt = (prompts.get("body") or "").strip()
     bias_prompt = (prompts.get("bias") or "").strip()
-    use_llm = bool(settings.openai_api_key)
+    llm_key = settings.anthropic_api_key or settings.openai_api_key
+    use_llm = bool(llm_key)
+    llm_label = "Claude Haiku" if settings.anthropic_api_key else "gpt-4o-mini"
     if use_llm:
-        log.info("LLM generation enabled (gpt-4o-mini). Generating headline/body/bias for %d clusters.", len(ranked_clusters))
+        log.info("LLM generation enabled (%s). Generating headline/body/bias for %d clusters.", llm_label, len(ranked_clusters))
     else:
-        log.info("LLM generation disabled (no OPENAI_API_KEY). Using heuristic fallbacks.")
+        log.info("LLM generation disabled (no ANTHROPIC_API_KEY or OPENAI_API_KEY). Using heuristic fallbacks.")
     stories: List[Story] = []
 
     region_labels = {
@@ -249,7 +215,7 @@ def generate_stories(
         # Headline: LLM or consensus-word synthesis
         headline = None
         if use_llm and headline_prompt:
-            headline = _generate_headline_llm(all_titles, all_snippets, headline_prompt, settings.openai_api_key)
+            headline = _generate_headline_llm(all_titles, all_snippets, headline_prompt, llm_key)
         if not headline:
             headline = _synthesize_headline(members)
 
@@ -264,7 +230,7 @@ def generate_stories(
         # Body: LLM summary or merged snippets (fallback)
         body = None
         if use_llm and body_prompt:
-            body = _generate_body_llm(all_snippets, body_prompt, settings.openai_api_key)
+            body = _generate_body_llm(all_snippets, body_prompt, llm_key)
         if not body:
             body = " ".join(all_snippets)[:1200].strip() or "No summary available."
 
@@ -287,7 +253,7 @@ def generate_stories(
 
         bias = None
         if use_llm and bias_prompt and len(by_region_snippets) >= 2:
-            bias = _generate_bias_llm(by_region_snippets, bias_prompt, settings.openai_api_key)
+            bias = _generate_bias_llm(by_region_snippets, bias_prompt, llm_key)
         if not bias:
             coverage_parts = [f"{r}: {', '.join(sorted(names))}" for r, names in sorted(by_region_names.items())]
             bias = "Covered by " + "; ".join(coverage_parts) + "."

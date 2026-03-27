@@ -7,7 +7,7 @@ Use this to continue step-by-step. Each step is independently buildable and test
 ## Step 1 — Config: settings — **DONE**
 
 - [x] `config/settings.py`: load from env (`python-dotenv` + `os.getenv`)
-- [x] `Settings`: `guardian_api_key`, `newsapi_key`, `db_path`, `telegram_bot_token`, `openai_api_key`, `top_n_stories`, `pipeline_hours_lookback` (default 8h), `pipeline_max_items`, `db_keep_days`
+- [x] `Settings`: `guardian_api_key`, `newsapi_key`, `db_path`, `openai_api_key`, `anthropic_api_key`, `top_n_stories`, `pipeline_hours_lookback` (default 8h), `pipeline_max_items`, `db_keep_days`
 - [x] `get_settings()` caches on first call
 
 ---
@@ -71,10 +71,8 @@ Use this to continue step-by-step. Each step is independently buildable and test
 
 ---
 
-## Steps 15–16 — Telegram + scheduling — **NEXT**
+## Steps 15–16 — Scheduling + deployment — **NEXT**
 
-- [ ] `delivery/telegram_formatter.py`: format Story → Telegram message (headline list, drill-down)
-- [ ] `delivery/telegram_bot.py`: `/morning` command, inline buttons, story drill-down
-- [ ] `scripts/run_bot.py`: start Telegram bot
 - [ ] Scheduling: cron / Cloud Scheduler → `run_pipeline()` daily
-- [ ] Deployment: Google Cloud (Cloud Run or VM) for bot + scheduler
+- [ ] Deployment: Google Cloud (Cloud Run or VM) for scheduler
+- [ ] Delivery interface: TBD (web UI, API, email, etc.)

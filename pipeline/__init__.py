@@ -1,4 +1,4 @@
-# Pipeline: normalize -> translate -> dedupe -> cluster -> rank -> generate. No fetch, no Telegram.
+# Pipeline: normalize -> translate -> dedupe -> cluster -> rank -> generate. No fetch.
 from .normalize import normalize
 from .translate import translate_to_english
 from .dedupe import dedupe

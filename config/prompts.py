@@ -19,9 +19,19 @@ def get_prompts() -> Dict[str, Any]:
             "6. One line, 6–12 words. No quotes around the headline."
         ),
         "body": (
-            "Write a concise, objective summary of what happened in 5–10 short lines. "
-            "Only strongly corroborated facts. No filler, no moralizing. "
-            "If something is unclear or disputed, state it clearly."
+            "You are a wire-service editor. From the source snippets below, extract and "
+            "structure the essential facts into a clear news body. Use this structure:\n"
+            "- WHAT happened (1–2 sentences)\n"
+            "- WHO is involved (names, roles, countries)\n"
+            "- WHERE and WHEN\n"
+            "- WHY it matters or what caused it (1 sentence)\n"
+            "- WHAT NEXT — any stated next steps, reactions, or consequences (1–2 sentences)\n\n"
+            "Rules:\n"
+            "- Write in plain English. Short sentences. No filler, no moralizing, no rhetoric.\n"
+            "- Only include facts that appear in at least one snippet. Do not invent details.\n"
+            "- If something is disputed or unclear, say so in one line.\n"
+            "- If a section has no information, skip it — do not pad.\n"
+            "- Total length: 5–12 short lines. Do not truncate mid-sentence."
         ),
         "bias": (
             "Compare how different regional or source groups frame this event. "

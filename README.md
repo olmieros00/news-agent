@@ -1,16 +1,15 @@
 # Morning News Agent
 
-Modular pipeline: fetch → ingest → normalize → translate → dedupe → cluster → rank → generate → Telegram.
+Modular pipeline: fetch → ingest → normalize → translate → dedupe → cluster → rank → generate.
 
 ## Sections
 
-- **config/** — Source registry, prompts, runtime settings. No fetching, no pipeline, no Telegram.
+- **config/** — Source registry, prompts, runtime settings. No fetching, no pipeline.
 - **connectors/** — Fetch raw from Guardian, RSS, GDELT, NewsAPI. No normalization or storage.
 - **models/** — Data shapes (raw, normalized, cluster, briefing). No I/O.
 - **ingestion/** — Store and read raw items only. No normalization or dedupe.
-- **pipeline/** — normalize → translate → dedupe → cluster → rank → generate; orchestrate. No fetch, no Telegram.
+- **pipeline/** — normalize → translate → dedupe → cluster → rank → generate; orchestrate. No fetch.
 - **storage/** — SQLite backend and briefing store. No pipeline logic.
-- **delivery/** — Telegram bot, formatter, optional state. No ingestion or pipeline.
 - **tests/** — Unit and integration tests, fixtures.
 - **scripts/** — Thin entrypoints for running and testing the pipeline.
 
@@ -23,8 +22,7 @@ Modular pipeline: fetch → ingest → normalize → translate → dedupe → cl
 | 3 | Dedupe + clustering | Done |
 | 4 | Ranking (weighted: 60% coverage, 25% diversity, 15% recency) | Done |
 | 5 | Story generation (LLM headline/body/bias; non-LLM fallback) | Done |
-| 6 | Telegram integration | Next |
-| 7 | Scheduling + deployment | Pending |
+| 6 | Scheduling + deployment | Next |
 
 ## Setup
 

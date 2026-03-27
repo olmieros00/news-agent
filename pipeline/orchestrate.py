@@ -1,5 +1,5 @@
 # Orchestration: single entry point for the full pipeline (fetch optional, then read -> normalize -> ... -> save briefing).
-# Used by scripts and (later) schedulers or Telegram layer. No Telegram formatting here.
+# Used by scripts and (later) schedulers. No formatting here.
 from __future__ import annotations
 
 import logging

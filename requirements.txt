@@ -10,5 +10,5 @@ openai>=1.0.0
 # Translate non-English to English before clustering (langdetect + deep-translator)
 langdetect>=1.0.9
 deep-translator>=1.11.0
-# Telegram bot
-python-telegram-bot>=21.0
+# LLM: Anthropic Claude (primary) — set ANTHROPIC_API_KEY in .env
+anthropic>=0.30.0
