@@ -24,13 +24,25 @@ def main() -> None:
         print("No briefing found. Run the full pipeline first: python3 scripts/run_full_pipeline.py")
         return
     print(f"Latest briefing: {briefing.date} ({len(stories)} stories)\n")
-    print(f"--- Top headlines (up to {len(stories)}) ---")
-    for i, story in enumerate(stories, 1):
-        print(f"  {i:2}. {story.headline[:75]}{'...' if len(story.headline) > 75 else ''}")
-        print(f"      story_id={story.story_id}")
-    print("\nTo expand a story, run: python3 scripts/test_expand_story.py <index_or_story_id>")
-    print("  e.g. python3 scripts/test_expand_story.py 3")
-    print("  e.g. python3 scripts/test_expand_story.py abc123def456...")
+    high = [s for s in stories if s.priority == "high"]
+    standard = [s for s in stories if s.priority != "high"]
+
+    if high:
+        print(f"--- B2C / Retail / D2C ({len(high)}) ---")
+        for i, story in enumerate(high, 1):
+            signal = f"[{story.signal_type}]" if story.signal_type else ""
+            print(f"  {i:2}. {signal:14s} {story.company:20s}  {story.headline[:55]}{'...' if len(story.headline) > 55 else ''}")
+            print(f"      Vertical: {story.vertical}  |  Source: {story.source}")
+
+    if standard:
+        offset = len(high)
+        print(f"\n--- Other verticals ({len(standard)}) ---")
+        for i, story in enumerate(standard, 1):
+            signal = f"[{story.signal_type}]" if story.signal_type else ""
+            print(f"  {offset+i:2}. {signal:14s} {story.company:20s}  {story.headline[:55]}{'...' if len(story.headline) > 55 else ''}")
+            print(f"      Vertical: {story.vertical}  |  Source: {story.source}")
+
+    print(f"\nTo expand a story: python3 scripts/test_expand_story.py <number>")
 
 
 if __name__ == "__main__":

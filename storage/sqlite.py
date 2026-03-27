@@ -67,7 +67,11 @@ class SQLiteBackend(Backend):
                 headline TEXT NOT NULL,
                 date TEXT NOT NULL,
                 body TEXT NOT NULL,
-                bias TEXT NOT NULL,
+                company TEXT NOT NULL DEFAULT '',
+                vertical TEXT NOT NULL DEFAULT '',
+                signal_type TEXT NOT NULL DEFAULT '',
+                source TEXT NOT NULL DEFAULT '',
+                priority TEXT NOT NULL DEFAULT 'standard',
                 FOREIGN KEY (briefing_id) REFERENCES {BRIEFINGS_TABLE}(id)
             )
             """
@@ -160,8 +164,8 @@ class SQLiteBackend(Backend):
             )
             for s in stories:
                 c.execute(
-                    f"INSERT OR REPLACE INTO {STORIES_TABLE} (id, briefing_id, cluster_id, headline, date, body, bias) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (s.story_id, briefing.briefing_id, s.cluster_id, s.headline, s.date, s.body, s.bias),
+                    f"INSERT OR REPLACE INTO {STORIES_TABLE} (id, briefing_id, cluster_id, headline, date, body, company, vertical, signal_type, source, priority) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (s.story_id, briefing.briefing_id, s.cluster_id, s.headline, s.date, s.body, s.company, s.vertical, s.signal_type, s.source, s.priority),
                 )
 
     def get_latest_briefing(self) -> Tuple[Optional[MorningBriefing], List[Story]]:
@@ -174,9 +178,14 @@ class SQLiteBackend(Backend):
             bid, bdate, _ = row
             briefing = MorningBriefing(briefing_id=bid, date=bdate, story_ids=[])
             rows = c.execute(
-                f"SELECT id, cluster_id, headline, date, body, bias FROM {STORIES_TABLE} WHERE briefing_id = ? ORDER BY id",
+                f"SELECT id, cluster_id, headline, date, body, company, vertical, signal_type, source, priority FROM {STORIES_TABLE} WHERE briefing_id = ? ORDER BY id",
                 (bid,),
             ).fetchall()
-            stories = [Story(story_id=rid, cluster_id=cid, headline=h, date=d, body=b, bias=bi) for rid, cid, h, d, b, bi in rows]
+            stories = [
+                Story(story_id=rid, cluster_id=cid, headline=h, date=d, body=b,
+                      company=co or "", vertical=v or "", signal_type=st or "", source=src or "",
+                      priority=p or "standard")
+                for rid, cid, h, d, b, co, v, st, src, p in rows
+            ]
             briefing.story_ids = [s.story_id for s in stories]
             return briefing, stories

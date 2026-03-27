@@ -1,41 +1,39 @@
-# Prompt templates for headline, body, bias generation.
-# No LLM calls; only strings/templates. Used by pipeline/generate (optional LLM hook).
+# Prompt templates for business intent signal extraction.
 from __future__ import annotations
 
 from typing import Dict, Any
 
 
 def get_prompts() -> Dict[str, Any]:
-    """Return prompt templates for story generation. Keys: headline, body, bias."""
+    """Return prompt templates for business signal extraction."""
     return {
-        "headline": (
-            "You write a new headline for this news story. "
-            "Rules: "
-            "1. Do NOT copy or paraphrase any single source title. Synthesise from all inputs. "
-            "2. Write in plain English only. If source titles are in another language, ignore their wording and write from the facts. "
-            "3. Ignore any format prefixes in source titles: WATCH, LISTEN, VIDEO, READ, LIVE, PHOTOS — strip them and focus on the news event. "
-            "4. State only the core fact: who/what, what happened, where if relevant. "
-            "5. No adjectives unless strictly factual. No editorial tone, no commentary, no spin. "
-            "6. One line, 6–12 words. No quotes around the headline."
-        ),
-        "body": (
-            "You are a wire-service editor. From the source snippets below, extract and "
-            "structure the essential facts into a clear news body. Use this structure:\n"
-            "- WHAT happened (1–2 sentences)\n"
-            "- WHO is involved (names, roles, countries)\n"
-            "- WHERE and WHEN\n"
-            "- WHY it matters or what caused it (1 sentence)\n"
-            "- WHAT NEXT — any stated next steps, reactions, or consequences (1–2 sentences)\n\n"
+        "classify_and_extract": (
+            "You are a B2C sales intelligence analyst. You scan Italian business news to find intent signals about SPECIFIC COMPANIES.\n\n"
+            "RELEVANT signals (return relevant=true):\n"
+            "- A specific company reports earnings, revenue, profit, or growth\n"
+            "- A specific company raises funding, gets acquired, or makes an acquisition\n"
+            "- A specific company launches a product, expands, hires, or opens new markets\n"
+            "- A specific company signs a partnership or strategic deal\n"
+            "- A specific company faces regulatory action, legal issues, or leadership changes\n\n"
+            "NOT RELEVANT signals (return relevant=false):\n"
+            "- Macro market data: stock index movements, oil/gas/commodity prices, bond spreads, currency rates\n"
+            "- Central bank commentary (ECB, Fed) or government policy without a specific company\n"
+            "- Broad industry reports or trends without naming a specific company\n"
+            "- Crime, weather, celebrities, sports, lifestyle, recipes, opinion pieces\n"
+            "- Government ministry announcements unless they directly name a company\n"
+            "- If no specific company is named, it is NOT RELEVANT\n\n"
+            "PRIORITY classification:\n"
+            "- priority = \"high\" if the company operates in: ecommerce, retail, D2C brands, consumer products, marketplace, consumer apps, fashion, beauty, food & beverage, FMCG, consumer fintech/payments (e.g. Satispay, Scalapay), consumer media, consumer mobility, consumer healthtech\n"
+            "- priority = \"standard\" for all other verticals: banking, telecom, B2B SaaS, agritech, insurance, logistics, industrial, energy, real estate, infrastructure\n\n"
+            "If RELEVANT: return ONLY valid JSON (no markdown, no ```json blocks):\n"
+            '{"relevant": true, "priority": "high or standard", "company": "exact company name", "vertical": "short industry label", "signal_type": "one of: growth | funding | m_and_a | partnership | product_launch | earnings | regulatory | leadership | contraction | expansion | ipo", "headline": "one English headline, 8-15 words, factual, no spin", "body": "3-6 English sentences summarizing the business event, facts only"}\n\n'
+            "If NOT RELEVANT: return ONLY:\n"
+            '{"relevant": false}\n\n'
             "Rules:\n"
-            "- Write in plain English. Short sentences. No filler, no moralizing, no rhetoric.\n"
-            "- Only include facts that appear in at least one snippet. Do not invent details.\n"
-            "- If something is disputed or unclear, say so in one line.\n"
-            "- If a section has no information, skip it — do not pad.\n"
-            "- Total length: 5–12 short lines. Do not truncate mid-sentence."
-        ),
-        "bias": (
-            "Compare how different regional or source groups frame this event. "
-            "Example: 'Some Western outlets frame it as X; some Middle Eastern as Y; "
-            "some business outlets focus on Z.' Do not decide who is right; only expose framing differences."
+            "- Source text may be in Italian. Always write headline and body in English.\n"
+            "- company MUST be a specific named entity (e.g. 'FiberCop', 'Satispay', 'Iccrea'). Never null.\n"
+            "- vertical examples: ecommerce, retail, d2c, fashion, beauty, food, fmcg, consumer_fintech, payments, marketplace, consumer_apps, consumer_media, banking, telecom, agritech, insurance, logistics, saas, healthtech, mobility, real_estate, energy, industrial\n"
+            "- Do NOT invent facts. Only use what appears in the snippets.\n"
+            "- Return raw JSON only. No explanation, no markdown formatting."
         ),
     }

@@ -11,7 +11,7 @@ from models.cluster import Cluster
 from models.normalized import NormalizedItem
 
 # Time window: only cluster items whose published_at is within this of each other (latest 24h).
-CLUSTER_TIME_WINDOW_HOURS = 24
+CLUSTER_TIME_WINDOW_HOURS = 48
 # Min cosine similarity (title + snippet) to consider same story.
 # 0.30 reduces false merges vs 0.26, while still catching same-event articles with different wording.
 CLUSTER_SIMILARITY_THRESHOLD = 0.30

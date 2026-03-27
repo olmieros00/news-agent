@@ -1,7 +1,8 @@
-# Per cluster: headline, date, body, bias.
-# Headline and body = LLM if OPENAI_API_KEY set; fallback to heuristics otherwise.
+# Per cluster: classify as business signal or noise, extract structured data.
+# Single LLM call per cluster handles relevance, company, vertical, signal_type, headline, body.
 from __future__ import annotations
 
+import json
 import logging
 import re
 from datetime import datetime, timezone
@@ -13,11 +14,6 @@ from models.briefing import Story
 from models.cluster import Cluster
 from models.normalized import NormalizedItem
 
-# Stopwords for headline synthesis (skip trivial words).
-_HEADLINE_STOP = frozenset(
-    {"the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by", "from", "as", "is", "was", "are", "were", "be", "been", "being", "have", "has", "had", "do", "does", "did", "will", "would", "could", "should", "may", "might", "must", "can", "this", "that", "these", "those", "it", "its", "it's"}
-)
-
 
 def _aware(d: datetime) -> datetime:
     return d.replace(tzinfo=timezone.utc) if d.tzinfo is None else d
@@ -27,80 +23,13 @@ def _format_date(d: datetime) -> str:
     return _aware(d).strftime("%Y-%m-%d")
 
 
-def _tokenize(text: str) -> List[str]:
-    """Lowercase, letters/numbers only, drop stopwords and very short tokens. Returns list to preserve order where needed."""
-    if not text:
-        return []
-    words = re.findall(r"[a-z0-9]+", (text or "").lower())
-    return [w for w in words if len(w) > 1 and w not in _HEADLINE_STOP]
-
-
-def _synthesize_headline(members: List[NormalizedItem]) -> str:
-    """
-    Pick the single cleanest English title from the cluster as the fallback headline.
-    Only considers title_en (translated). Falls back to original titles only if no
-    translated titles are available at all (e.g. translation step was skipped entirely).
-    Among candidates, prefers titles in the 5–12 word range, then shortest.
-    """
-    # English-confirmed titles first
-    en_titles = [m.title_en.strip() for m in members if (m.title_en or "").strip()]
-    titles = en_titles if en_titles else [(m.title or "").strip() for m in members if (m.title or "").strip()]
-    if not titles:
-        return "No headline"
-    if len(titles) == 1:
-        return titles[0]
-
-    def _word_count(t: str) -> int:
-        return len(t.split())
-
-    in_range = [t for t in titles if 5 <= _word_count(t) <= 12]
-    candidates = in_range if in_range else titles
-    return min(candidates, key=_word_count)
-
-
-def _ensure_english(text: str, label: str, max_len: int = 2000) -> str:
-    """
-    Final safety net: if `text` is detectably non-English, translate it.
-    `label` is used in log messages ("headline" or "body").
-    For headlines: cheap (short string). For bodies: slightly more expensive but still
-    only called once per story (max 10 per run).
-    Returns original text if detection/translation is unavailable or already English.
-    """
-    if not text or text in ("No headline", "No summary available."):
-        return text
-    try:
-        import langdetect
-        lang = langdetect.detect(text[:500])
-        if lang == "en":
-            return text
-        try:
-            from deep_translator import GoogleTranslator
-            translated = GoogleTranslator(source="auto", target="en").translate(text[:max_len])
-            if translated and translated.strip():
-                log.info("%s translated from %s to English (%d chars)", label, lang, len(text))
-                return translated.strip()
-        except Exception as e:
-            log.warning("%s translation failed (%s): %s", label, lang, e)
-    except Exception:
-        pass
-    return text
-
-
-def _ensure_english_headline(headline: str) -> str:
-    return _ensure_english(headline, "Headline", max_len=300)
-
-
-def _ensure_english_body(body: str) -> str:
-    return _ensure_english(body, "Body", max_len=1500)
-
-
 def _claude_call(system: str, user: str, max_tokens: int, api_key: str) -> Optional[str]:
     """Call Anthropic Claude. Returns response text or None on failure."""
     try:
         import anthropic
         client = anthropic.Anthropic(api_key=api_key)
         response = client.messages.create(
-            model="claude-haiku-4-20250414",
+            model="claude-sonnet-4-20250514",
             max_tokens=max_tokens,
             system=system,
             messages=[{"role": "user", "content": user}],
@@ -115,56 +44,48 @@ def _claude_call(system: str, user: str, max_tokens: int, api_key: str) -> Optio
         return None
 
 
-def _generate_headline_llm(
+def _classify_and_extract(
     titles: List[str],
     snippets: List[str],
+    source_names: List[str],
     prompt_instruction: str,
     api_key: str,
-) -> Optional[str]:
-    """Call Claude to produce one neutral headline. Returns None on failure."""
+) -> Optional[dict]:
+    """Single Claude call: classify relevance + extract company/vertical/signal/headline/body.
+    Returns parsed dict or None on failure."""
     if not api_key or not titles:
         return None
-    combined = "Titles from different sources:\n" + "\n".join(f"- {t}" for t in titles[:10])
+    combined = "Titles:\n" + "\n".join(f"- {t}" for t in titles[:10])
     if snippets:
-        combined += "\n\nShort snippets:\n" + "\n".join(s[:200] for s in snippets[:5] if s)
-    combined += "\n\nSynthesize one new headline from the above. One line, no quotes. Reasoned, fair, unbiased, straight to the point."
-    text = _claude_call(prompt_instruction, combined, max_tokens=80, api_key=api_key)
-    return text[:200] if text else None
+        combined += "\n\nSnippets:\n" + "\n".join(
+            f"[{i+1}] {s[:600]}" for i, s in enumerate(snippets[:10]) if s
+        )
+    if source_names:
+        combined += "\n\nSources: " + ", ".join(source_names[:10])
 
-
-def _generate_body_llm(
-    snippets: List[str],
-    prompt_instruction: str,
-    api_key: str,
-) -> Optional[str]:
-    """Call Claude to produce a structured, objective body from merged snippets."""
-    if not api_key or not snippets:
+    raw = _claude_call(prompt_instruction, combined, max_tokens=500, api_key=api_key)
+    if not raw:
         return None
-    combined = "Snippets from different sources:\n" + "\n\n".join(
-        f"[{i+1}] {s[:600]}" for i, s in enumerate(snippets[:10]) if s
-    )
-    combined += "\n\nExtract and structure the essential facts from these snippets. Follow the WHAT/WHO/WHERE/WHEN/WHY/WHAT NEXT structure. Skip sections with no information. Do not truncate mid-sentence."
-    return _claude_call(prompt_instruction, combined, max_tokens=600, api_key=api_key)
+    raw = raw.strip()
+    if raw.startswith("```"):
+        raw = re.sub(r"^```(?:json)?\s*", "", raw)
+        raw = re.sub(r"\s*```$", "", raw)
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        log.warning("LLM returned invalid JSON: %s", raw[:200])
+        return None
 
 
-def _generate_bias_llm(
-    region_snippets: Dict[str, List[str]],
-    prompt_instruction: str,
-    api_key: str,
-) -> Optional[str]:
-    """Call Claude to compare framing across regional source groups."""
-    if not api_key or not region_snippets:
-        return None
-    parts = []
-    for region, snips in region_snippets.items():
-        combined_snip = " ".join(s[:200] for s in snips[:3] if s)
-        if combined_snip:
-            parts.append(f"[{region}]: {combined_snip}")
-    if not parts:
-        return None
-    combined = "\n\n".join(parts)
-    combined += "\n\nBriefly compare how each regional group frames this event. 2–4 lines. No judgment."
-    return _claude_call(prompt_instruction, combined, max_tokens=200, api_key=api_key)
+def _fallback_headline(members: List[NormalizedItem]) -> str:
+    """Pick the shortest clean title from the cluster as fallback."""
+    titles = [
+        (m.title_en or m.title or "").strip()
+        for m in members if (m.title_en or m.title or "").strip()
+    ]
+    if not titles:
+        return "No headline"
+    return min(titles, key=len)
 
 
 def generate_stories(
@@ -172,100 +93,91 @@ def generate_stories(
     normalized_items: List[NormalizedItem],
     source_registry: List[Dict[str, Any]],
 ) -> List[Story]:
-    """
-    For each cluster, produce one Story: headline (neutral), date, body, bias.
-    Headline: generated by LLM (if OPENAI_API_KEY set) or synthesized from consensus words across sources. We do not pick one outlet's title.
-    """
+    """For each cluster, classify as business signal or noise via Claude.
+    Returns only relevant business stories with company, vertical, signal_type."""
     from config import get_region_and_name_for_source, get_settings, get_prompts
+
     item_by_id = {n.id: n for n in normalized_items}
     settings = get_settings()
     prompts = get_prompts()
-    headline_prompt = (prompts.get("headline") or "").strip()
-    body_prompt = (prompts.get("body") or "").strip()
-    bias_prompt = (prompts.get("bias") or "").strip()
-    llm_key = settings.anthropic_api_key or settings.openai_api_key
-    use_llm = bool(llm_key)
-    llm_label = "Claude Haiku" if settings.anthropic_api_key else "gpt-4o-mini"
-    if use_llm:
-        log.info("LLM generation enabled (%s). Generating headline/body/bias for %d clusters.", llm_label, len(ranked_clusters))
-    else:
-        log.info("LLM generation disabled (no ANTHROPIC_API_KEY or OPENAI_API_KEY). Using heuristic fallbacks.")
-    stories: List[Story] = []
+    classify_prompt = (prompts.get("classify_and_extract") or "").strip()
 
-    region_labels = {
-        "western": "Western", "european": "European", "middle_eastern": "Middle Eastern",
-        "asia": "Asia", "business": "Business", "africa": "Africa",
-        "latin_america": "Latin America", "other": "Other",
-    }
+    llm_key = settings.anthropic_api_key or settings.openai_api_key
+    use_llm = bool(llm_key and classify_prompt)
+
+    if use_llm:
+        log.info("Business signal extraction enabled (Claude). Processing %d clusters.", len(ranked_clusters))
+    else:
+        log.info("No LLM key set. Returning all clusters without filtering.")
+
+    stories: List[Story] = []
+    skipped = 0
 
     for cluster in ranked_clusters:
         members = [item_by_id[mid] for mid in cluster.member_ids if mid in item_by_id]
         if not members:
             continue
 
-        # Only use English-confirmed titles for LLM and fallback.
-        # title_en is set by the translate step; if it's None the translation failed,
-        # and passing the original non-English title would contaminate the output.
-        all_titles = [m.title_en.strip() for m in members if (m.title_en or "").strip()]
-        # Fallback: if no translated titles at all (e.g. translation step skipped), use original
-        if not all_titles:
-            all_titles = [(m.title or "").strip() for m in members if (m.title or "").strip()]
-        all_snippets = [(m.body_en or m.body_or_snippet or "").strip() for m in members if (m.body_en or m.body_or_snippet or "").strip()]
+        all_titles = [
+            (m.title_en or m.title or "").strip()
+            for m in members if (m.title_en or m.title or "").strip()
+        ]
+        all_snippets = [
+            (m.body_en or m.body_or_snippet or "").strip()
+            for m in members if (m.body_en or m.body_or_snippet or "").strip()
+        ]
+        source_names = []
+        for m in members:
+            _, name = get_region_and_name_for_source(m.source_id)
+            if name not in source_names:
+                source_names.append(name)
 
-        # Headline: LLM or consensus-word synthesis
-        headline = None
-        if use_llm and headline_prompt:
-            headline = _generate_headline_llm(all_titles, all_snippets, headline_prompt, llm_key)
-        if not headline:
-            headline = _synthesize_headline(members)
-
-        # Final language guard: if the headline is not English, attempt a quick translation.
-        # This catches leakage from failed translations or LLM hallucinations.
-        headline = _ensure_english_headline(headline)
-
-        # Date: latest published in cluster
         latest = max(_aware(m.published_at) for m in members)
         date_str = _format_date(latest)
 
-        # Body: LLM summary or merged snippets (fallback)
-        body = None
-        if use_llm and body_prompt:
-            body = _generate_body_llm(all_snippets, body_prompt, llm_key)
-        if not body:
-            body = " ".join(all_snippets)[:1200].strip() or "No summary available."
-
-        # Final language guard on body — same as headline guard
-        body = _ensure_english_body(body)
-
-        # Bias: group snippets by region, ask LLM to compare framing; fallback = coverage list
-        by_region_names: Dict[str, List[str]] = {}
-        by_region_snippets: Dict[str, List[str]] = {}
-        for m in members:
-            region, name = get_region_and_name_for_source(m.source_id)
-            label = region_labels.get(region, region)
-            by_region_names.setdefault(label, [])
-            by_region_snippets.setdefault(label, [])
-            if name not in by_region_names[label]:
-                by_region_names[label].append(name)
-            snip = (m.body_en or m.body_or_snippet or "").strip()
-            if snip:
-                by_region_snippets[label].append(snip)
-
-        bias = None
-        if use_llm and bias_prompt and len(by_region_snippets) >= 2:
-            bias = _generate_bias_llm(by_region_snippets, bias_prompt, llm_key)
-        if not bias:
-            coverage_parts = [f"{r}: {', '.join(sorted(names))}" for r, names in sorted(by_region_names.items())]
-            bias = "Covered by " + "; ".join(coverage_parts) + "."
-
-        stories.append(
-            Story(
-                story_id=cluster.cluster_id,
-                cluster_id=cluster.cluster_id,
-                headline=headline,
-                date=date_str,
-                body=body,
-                bias=bias,
+        if use_llm:
+            result = _classify_and_extract(
+                all_titles, all_snippets, source_names, classify_prompt, llm_key,
             )
-        )
+            if result and not result.get("relevant", False):
+                skipped += 1
+                continue
+
+            if result and result.get("relevant"):
+                stories.append(Story(
+                    story_id=cluster.cluster_id,
+                    cluster_id=cluster.cluster_id,
+                    headline=result.get("headline") or _fallback_headline(members),
+                    date=date_str,
+                    body=result.get("body") or " ".join(all_snippets)[:800] or "No summary available.",
+                    company=result.get("company") or "",
+                    vertical=result.get("vertical") or "",
+                    signal_type=result.get("signal_type") or "",
+                    source=", ".join(source_names),
+                    priority=result.get("priority") or "standard",
+                ))
+                continue
+
+        # Fallback (no LLM or LLM failed): include everything, no classification
+        stories.append(Story(
+            story_id=cluster.cluster_id,
+            cluster_id=cluster.cluster_id,
+            headline=_fallback_headline(members),
+            date=date_str,
+            body=" ".join(all_snippets)[:800] or "No summary available.",
+            company="",
+            vertical="",
+            signal_type="",
+            source=", ".join(source_names),
+            priority="standard",
+        ))
+
+    if skipped:
+        log.info("Filtered out %d non-business clusters.", skipped)
+
+    # Sort: high-priority (B2C/retail/D2C) first, then standard
+    stories.sort(key=lambda s: (0 if s.priority == "high" else 1))
+
+    high = sum(1 for s in stories if s.priority == "high")
+    log.info("Returning %d business signals (%d high-priority B2C, %d standard).", len(stories), high, len(stories) - high)
     return stories

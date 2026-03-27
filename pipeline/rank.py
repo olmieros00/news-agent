@@ -1,12 +1,7 @@
-# Score and sort clusters; return top N cluster_ids.
-#
-# "Hot" = coverage breadth (many publishers) + source diversity (many regions) + recency/momentum.
-# We do NOT rank by: social volume, single-source exclusives, or editorial tone.
-#
-# Weighted impact (aggregator-style):
-#   score = 0.65 * publisher_count + 0.25 * region_count + 0.10 * recency_score
-# Coverage dominates. Recency half-life is 36h (gentle decay within the morning window).
-# Relevance filter (not niche) and anchor-region filter are applied first.
+# Score and sort clusters; return top N.
+# For business feeds: every story qualifies (MIN_COVERAGE=1, MIN_REGIONS=1).
+# Ranking: recency-first, with coverage as bonus when multiple sources report the same event.
+# Relevance filter removes non-business noise (horoscopes, recipes, etc.).
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -16,15 +11,13 @@ from models.cluster import Cluster
 from models.normalized import NormalizedItem
 
 # Minimum number of distinct publishers in a cluster to appear in the briefing.
-# Per-source dedup is now in place (coverage = distinct publishers, not total articles),
-# so 3 distinct publishers from 2+ regions is a meaningful and strict global signal.
-MIN_COVERAGE_FOR_BRIEFING = 3
+# Set to 1 for niche business sources where single-source stories are common.
+# Increase to 2 once more sources are flowing and cross-coverage is expected.
+MIN_COVERAGE_FOR_BRIEFING = 1
 
 # Minimum number of distinct source regions a cluster must span to qualify.
-# 2 regions = must be covered by publishers from at least 2 different parts of the world.
-# This prevents national/regional stories (e.g. Indian domestic news covered only by Indian
-# and Asian outlets) from crowding out genuinely global stories.
-MIN_REGIONS_FOR_BRIEFING = 2
+# Set to 1 for single-region (e.g. Italian business) source sets.
+MIN_REGIONS_FOR_BRIEFING = 1
 
 # Weights for weighted impact score (coverage dominant, then diversity, then recency).
 WEIGHT_COVERAGE = 0.65
@@ -35,80 +28,50 @@ WEIGHT_RECENCY = 0.10
 # well-covered stories on recency alone.
 RECENCY_HALFLIFE_HOURS = 36.0
 
-# Regions that must be present in at least one cluster member for the story to qualify.
-# Prevents LATAM-only, India-only, or Africa-only clusters from reaching the briefing
-# even when they technically span 2 regions via a clustering false-positive.
-ANCHOR_REGIONS = frozenset({"western", "european", "middle_eastern"})
+# Anchor region filter disabled for single-region source sets.
+ANCHOR_REGIONS: frozenset = frozenset()
 
-# Substrings (lowercase) in cluster title that mark it as niche / low relevance for a global morning briefing.
-# Such clusters are ranked after "relevant" ones; we prefer fewer, more relevant stories over filling with these.
+# Substrings (lowercase) in cluster title that are obvious non-business noise.
+# Pre-filters before sending to Claude (saves API calls).
 NICHE_TITLE_PATTERNS = [
-    "obituary",
-    " obituary:",
-    " – live",
-    " live ",
-    "live blog",
-    "live:",
-    " vs. ",
-    " vs ",
-    " v. ",
-    " v ",
-    "premier league",
-    "goat?",
-    "goat? ",
-    "qualifying",
-    " gp ",
-    " gp:",
-    " to keep ",
-    "hopes alive",
-    "beat ",
-    "today in houston",
-    "what time does",
-    "how to watch",
-    "corrections and clarifications",
-    # Seasonal / calendar / local events
-    "cuándo empieza",
-    "cuando empieza",
-    "cuándo son",
-    "cuando son",
-    "semana santa",
-    "feriados",
-    "bank holiday",
-    "public holiday",
-    "when does autumn",
-    "when does spring",
-    "when does summer",
-    "when does winter",
-    # Horoscope / lifestyle
-    "horoscope",
-    "horóscopo",
-    "weather forecast",
-    # Media/format labels (should be stripped by normalizer, but catch any that slip through)
-    "watch:",
-    "listen:",
-    "read:",
-    "in pictures",
-    "in photos",
-    # Letters / opinion / meta
-    "this week in",
-    "letters to the editor",
-    "letters:",
-    "opinion:",
+    "oroscopo",
+    "meteo",
+    "previsioni meteo",
+    "ricetta",
+    "ricette",
     "podcast:",
     "newsletter:",
     "quiz:",
-    # Listicles / soft content
-    "recipe",
-    "ranked:",
-    "top 10",
-    "top 5",
-    # LATAM / local financial / social content (safety net for clustering false-positives)
-    "jubilados",
-    "anses",
-    "cobran",
-    "dólar",
-    "pensiones",
-    "feriado",
+    "watch:",
+    "listen:",
+    "in pictures",
+    "in photos",
+    "obituary",
+    "necrologio",
+    "spara alla",
+    "spara al",
+    "accoltellat",
+    "omicidio",
+    "stupro",
+    "rapina",
+    "arrestat",
+    "palpeggia",
+    "aggredisce",
+    "incidente stradale",
+    "scomparso",
+    "scomparsa",
+    "raffiche di vento",
+    "allerta meteo",
+    "terremoto",
+    "auto d'epoca",
+    "sfilata",
+    "concerto",
+    "serie a",
+    "serie b",
+    "champions league",
+    "coppa italia",
+    "calciomercato",
+    "borse termiche",
 ]
 
 
@@ -235,10 +198,7 @@ def rank(
         c for c in clusters
         if len(get_members(c)) >= MIN_COVERAGE_FOR_BRIEFING
         and len(_regions(c)) >= MIN_REGIONS_FOR_BRIEFING
-        # At least one publisher must be from a major global-news hub (anchor region).
-        # Cuts out LATAM-only, India-only, Africa-only clusters that pass the region
-        # count threshold via clustering noise but are regional stories, not global ones.
-        and bool(_regions(c) & ANCHOR_REGIONS)
+        and (not ANCHOR_REGIONS or bool(_regions(c) & ANCHOR_REGIONS))
     ]
     sorted_clusters = sorted(eligible, key=sort_key, reverse=True)
     return sorted_clusters[:top_n]

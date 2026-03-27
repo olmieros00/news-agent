@@ -1,6 +1,5 @@
-# Full test: load latest briefing and print every story's headline, date, body, and bias.
+# Full test: print every story with all business signal fields.
 # Run from news-agent: python3 scripts/test_full_briefing.py
-# Requires a saved briefing first: python3 scripts/run_full_pipeline.py [--no-fetch]
 from __future__ import annotations
 
 import sys
@@ -24,23 +23,23 @@ def main() -> None:
     if not briefing or not stories:
         print("No briefing found. Run the full pipeline first: python3 scripts/run_full_pipeline.py")
         sys.exit(1)
-    print(f"=== Full briefing: {briefing.date} ({len(stories)} stories) ===\n")
+    print(f"=== Business signals briefing: {briefing.date} ({len(stories)} stories) ===\n")
     for i, story in enumerate(stories, 1):
         print("=" * 60)
-        print(f"Story {i} | story_id={story.story_id}")
+        print(f"  #{i}")
+        if story.priority:
+            print(f"  Priority:    {story.priority} (high = B2C/retail/D2C)")
+        if story.company:
+            print(f"  Company:     {story.company}")
+        if story.vertical:
+            print(f"  Vertical:    {story.vertical}")
+        if story.signal_type:
+            print(f"  Signal:      {story.signal_type}")
+        print(f"  Date:        {story.date}")
+        print(f"  Source:      {story.source}")
         print("=" * 60)
-        print("[Headline]")
-        print(story.headline)
-        print()
-        print("[Date]")
-        print(story.date)
-        print()
-        print("[Body]")
-        print(story.body)
-        print()
-        print("[Bias]")
-        print(story.bias)
-        print()
+        print(f"\n  {story.headline}\n")
+        print(f"  {story.body}\n")
     print("Done.")
 
 

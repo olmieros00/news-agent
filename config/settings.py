@@ -51,8 +51,8 @@ class Settings:
             db_path=os.getenv("DB_PATH", "").strip() or str(Path.cwd() / "data" / "news_agent.db"),
             openai_api_key=os.getenv("OPENAI_API_KEY", "").strip(),
             anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", "").strip(),
-            top_n_stories=int(os.getenv("TOP_N_STORIES", "10")),
-            pipeline_hours_lookback=int(os.getenv("PIPELINE_HOURS_LOOKBACK", "8")),
+            top_n_stories=int(os.getenv("TOP_N_STORIES", "20")),
+            pipeline_hours_lookback=int(os.getenv("PIPELINE_HOURS_LOOKBACK", "48")),
             pipeline_max_items=int(os.getenv("PIPELINE_MAX_ITEMS", "3000")),
             db_keep_days=int(os.getenv("DB_KEEP_DAYS", "3")),
         )

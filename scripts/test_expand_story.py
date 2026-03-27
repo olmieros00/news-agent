@@ -1,7 +1,5 @@
-# Test: expand a single story by index (1 to N) or story_id and print [date], [body], [bias].
+# Expand a single story by index (1 to N) or story_id.
 # Run from news-agent: python3 scripts/test_expand_story.py <index_or_story_id>
-#   e.g. python3 scripts/test_expand_story.py 3
-#   e.g. python3 scripts/test_expand_story.py abc123def456...
 from __future__ import annotations
 
 import sys
@@ -23,8 +21,6 @@ from storage.briefing_store import get_latest_briefing
 def main() -> None:
     if len(sys.argv) < 2:
         print("Usage: python3 scripts/test_expand_story.py <index_or_story_id>")
-        print("  index: 1-N (position in the top headlines list)")
-        print("  story_id: exact id from test_briefing_headlines.py")
         sys.exit(1)
     arg = sys.argv[1].strip()
     briefing, stories = get_latest_briefing()
@@ -42,19 +38,22 @@ def main() -> None:
                 story = s
                 break
     if not story:
-        print(f"No story found for '{arg}' (use index 1-{len(stories)} or a story_id from test_briefing_headlines.py)")
+        print(f"No story found for '{arg}' (use index 1-{len(stories)})")
         sys.exit(1)
-    print("--- Headline ---")
-    print(story.headline)
-    print()
-    print("--- Date ---")
-    print(story.date)
-    print()
-    print("--- Body ---")
+
+    print(f"{'='*60}")
+    if story.company:
+        print(f"  Company:     {story.company}")
+    if story.vertical:
+        print(f"  Vertical:    {story.vertical}")
+    if story.signal_type:
+        print(f"  Signal:      {story.signal_type}")
+    print(f"  Date:        {story.date}")
+    print(f"  Source:      {story.source}")
+    print(f"{'='*60}")
+    print(f"\n{story.headline}\n")
     print(story.body)
     print()
-    print("--- Bias ---")
-    print(story.bias)
 
 
 if __name__ == "__main__":

@@ -42,7 +42,7 @@ def main() -> None:
     backend = SQLiteBackend(settings.db_path)
 
     if not args.no_fetch:
-        print("1. Fetching from Guardian + RSS...")
+        print("1. Fetching from RSS sources...")
     else:
         print("1. Skipping fetch (--no-fetch); using existing DB.")
     print("2. Reading raw -> normalize -> translate -> dedupe -> cluster -> rank -> generate -> save briefing...")
@@ -64,9 +64,14 @@ def main() -> None:
 
     b, s = get_latest_briefing(backend=backend)
     if b and s:
-        print(f"\n--- Latest briefing ({len(s)} headlines) ---")
+        high = [x for x in s if x.priority == "high"]
+        std = [x for x in s if x.priority != "high"]
+        print(f"\n--- Business signals ({len(s)} total: {len(high)} B2C, {len(std)} other) ---")
         for i, story in enumerate(s, 1):
-            print(f"  {i}. {story.headline[:70]}{'...' if len(story.headline) > 70 else ''}")
+            tag = "B2C" if story.priority == "high" else "   "
+            signal = f"[{story.signal_type}]" if story.signal_type else ""
+            company = story.company or "—"
+            print(f"  {i:2}. {tag} {signal:14s} {company:20s}  {story.headline[:45]}{'...' if len(story.headline) > 45 else ''}")
     print("Done.")
 
 
